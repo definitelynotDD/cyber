@@ -3,6 +3,17 @@
 Run with:  streamlit run app.py
 """
 import os
+import subprocess
+import sys
+
+# Ensure Playwright's Chromium binary is present (needed on Streamlit Cloud).
+try:
+    from playwright.sync_api import sync_playwright as _sp
+    with _sp() as _p:
+        _p.chromium.launch(headless=True).close()
+except Exception:
+    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"],
+                  check=False, capture_output=True)
 
 import streamlit as st
 
