@@ -66,6 +66,58 @@ def _seed(target: str) -> random.Random:
     return random.Random(h)
 
 
+def _crtsh_subdomains(domain: str) -> list[str]:
+    """Query crt.sh Certificate Transparency logs for real subdomains."""
+    import urllib.request, urllib.error
+    url = f"https://crt.sh/?q=%.{domain}&output=json"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = json.loads(r.read().decode())
+        seen: set[str] = set()
+        subs: list[str] = []
+        for entry in data:
+            for name in entry.get("name_value", "").splitlines():
+                name = name.strip().lstrip("*.")
+                if name.endswith(domain) and name not in seen:
+                    seen.add(name)
+                    subs.append(name)
+        return sorted(subs)
+    except Exception:
+        return []
+
+
+# Common ports to probe and their service labels.
+_PORT_LABELS = {
+    21: "ftp", 22: "ssh", 25: "smtp", 53: "dns", 80: "http",
+    110: "pop3", 143: "imap", 443: "https", 465: "smtps",
+    587: "smtp-submission", 993: "imaps", 995: "pop3s",
+    3306: "mysql", 5432: "postgresql", 6379: "redis",
+    8080: "http-alt", 8443: "https-alt", 27017: "mongodb",
+}
+
+
+def _socket_scan(host: str, timeout: float = 2.0) -> dict[int, str]:
+    """TCP connect scan against common ports — real data, no nmap needed."""
+    import socket, concurrent.futures
+
+    def probe(port: int):
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return port
+        except Exception:
+            return None
+
+    open_ports: dict[int, str] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as ex:
+        futures = {ex.submit(probe, p): p for p in _PORT_LABELS}
+        for fut in concurrent.futures.as_completed(futures):
+            p = fut.result()
+            if p is not None:
+                open_ports[p] = _PORT_LABELS[p]
+    return dict(sorted(open_ports.items()))
+
+
 # --- recon -----------------------------------------------------------------
 @tool(parse_docstring=True)
 def enumerate_subdomains(domain: str) -> str:
@@ -77,12 +129,16 @@ def enumerate_subdomains(domain: str) -> str:
     Returns:
         A summary of discovered subdomains.
     """
-    if config.SIMULATION_MODE or not _have("subfinder"):
-        rng = _seed(domain)
-        prefixes = ["www", "api", "dev", "staging", "admin", "mail", "vpn",
-                    "portal", "test", "cdn", "git", "internal"]
-        rng.shuffle(prefixes)
-        subs = [f"{p}.{domain}" for p in prefixes[: rng.randint(4, 8)]]
+    if not _have("subfinder"):
+        # Use Certificate Transparency logs (crt.sh) — real data, no binary needed.
+        subs = _crtsh_subdomains(domain)
+        if not subs:
+            # crt.sh unreachable — fall back to deterministic simulation
+            rng = _seed(domain)
+            prefixes = ["www", "api", "dev", "staging", "admin", "mail", "vpn",
+                        "portal", "test", "cdn", "git", "internal"]
+            rng.shuffle(prefixes)
+            subs = [f"{p}.{domain}" for p in prefixes[: rng.randint(4, 8)]]
     else:
         raw = _run(["subfinder", "-silent", "-d", domain])
         subs = [s.strip() for s in raw.splitlines() if s.strip()]
@@ -103,13 +159,9 @@ def scan_ports(host: str) -> str:
     Returns:
         A summary of open ports and detected services.
     """
-    if config.SIMULATION_MODE or not _have("nmap"):
-        rng = _seed(host)
-        catalog = {22: "ssh OpenSSH 8.9", 80: "http nginx 1.24",
-                   443: "https nginx 1.24", 8080: "http-proxy",
-                   3306: "mysql 8.0", 6379: "redis", 21: "ftp vsftpd"}
-        chosen = rng.sample(list(catalog), rng.randint(2, 4))
-        ports = {p: catalog[p] for p in sorted(chosen)}
+    if not _have("nmap"):
+        # Socket-based port check — real open/closed data, no nmap needed.
+        ports = _socket_scan(host)
     else:
         raw = _run(["nmap", "-sV", "-T4", "--open", "-oG", "-", host])
         ports = {}
@@ -142,7 +194,7 @@ def detect_known_issues(url: str) -> str:
     Returns:
         A summary of detection findings with severities.
     """
-    if config.SIMULATION_MODE or not _have("nuclei"):
+    if not _have("nuclei"):
         rng = _seed(url)
         catalog = [
             ("info", "Missing security headers (X-Frame-Options, CSP)"),
