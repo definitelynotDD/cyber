@@ -236,5 +236,81 @@ def capture_screenshot(url: str, out_path: str) -> Optional[str]:
         return None
 
 
-RECON_TOOLS = [enumerate_subdomains, scan_ports, recall]
+@tool(parse_docstring=True)
+def check_ssl(hostname: str) -> str:
+    """Check the SSL/TLS certificate for a hostname.
+
+    Retrieves certificate details: validity dates, issuer, subject,
+    expiry status, and whether it's self-signed.
+
+    Args:
+        hostname: Domain to check, e.g. "example.com" (no https://).
+
+    Returns:
+        A summary of the SSL certificate status and any issues found.
+    """
+    import ssl, socket, datetime
+
+    hostname = hostname.replace("https://", "").replace("http://", "").split("/")[0]
+
+    try:
+        ctx = ssl.create_default_context()
+        with socket.create_connection((hostname, 443), timeout=10) as sock:
+            with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
+                cert = ssock.getpeercert()
+    except ssl.SSLCertVerificationError as e:
+        result = f"SSL certificate INVALID: {e}"
+        _mem().add_note(f"SSL issue on {hostname}: {result}")
+        return result
+    except Exception as e:
+        result = f"Could not connect to {hostname}:443 — {e}"
+        _mem().add_note(f"SSL check failed for {hostname}: {e}")
+        return result
+
+    # Parse expiry
+    not_after_str = cert.get("notAfter", "")
+    try:
+        not_after = datetime.datetime.strptime(not_after_str, "%b %d %H:%M:%S %Y %Z")
+        days_left = (not_after - datetime.datetime.utcnow()).days
+        expiry_status = (
+            f"EXPIRED {abs(days_left)} days ago" if days_left < 0
+            else f"expires in {days_left} days ({not_after.date()})"
+        )
+        if 0 <= days_left <= 30:
+            expiry_status = f"WARNING — {expiry_status}"
+    except Exception:
+        expiry_status = not_after_str
+
+    not_before_str = cert.get("notBefore", "")
+
+    # Subject / issuer
+    subject = dict(x[0] for x in cert.get("subject", []))
+    issuer  = dict(x[0] for x in cert.get("issuer", []))
+    cn      = subject.get("commonName", hostname)
+    issuer_cn = issuer.get("organizationName") or issuer.get("commonName", "unknown")
+    self_signed = subject == issuer
+
+    # SANs
+    sans = [v for t, v in cert.get("subjectAltName", []) if t == "DNS"]
+
+    summary = (
+        f"SSL certificate for {hostname}:\n"
+        f"  Subject CN : {cn}\n"
+        f"  Issuer     : {issuer_cn}{'  ⚠ SELF-SIGNED' if self_signed else ''}\n"
+        f"  Valid from : {not_before_str}\n"
+        f"  Expiry     : {expiry_status}\n"
+        f"  SANs       : {', '.join(sans[:8]) or 'none'}\n"
+        f"  Protocol   : {ssock.version() if False else 'TLS (verified)'}"
+    )
+
+    _mem().set_fact("ssl_certificate", {
+        "hostname": hostname, "issuer": issuer_cn,
+        "expiry": not_after_str, "days_left": days_left,
+        "self_signed": self_signed, "sans": sans,
+    })
+    _mem().add_note(f"SSL for {hostname}: {issuer_cn}, {expiry_status}")
+    return summary
+
+
+RECON_TOOLS = [enumerate_subdomains, scan_ports, check_ssl, recall]
 ANALYSIS_TOOLS = [detect_known_issues, recall]
