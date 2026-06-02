@@ -1,5 +1,6 @@
 .env
 runs/
+test_shot.png
 __pycache__/
 *.pyc
 *.pyo
