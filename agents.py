@@ -134,9 +134,8 @@ def run_vision(target: str, screenshot_dir: str) -> str:
     with open(saved, "rb") as fh:
         b64 = base64.standard_b64encode(fh.read()).decode()
 
-    from langchain.chat_models import init_chat_model
-    _vision_primary = ChatGoogleGenerativeAI(model=config.VISION_MODEL, max_output_tokens=1024)
-    vision_llm = _vision_primary.with_fallbacks([init_chat_model(config.FALLBACK_MODEL)])
+    # Vision must stay on Gemini — Groq/llama does not support image inputs.
+    # Try primary then one Gemini fallback; if both fail, degrade gracefully.
     prompt = (
         "You are analysing a screenshot of a web target during an authorised "
         "attack-surface assessment. Identify anything security-relevant a "
@@ -146,11 +145,22 @@ def run_vision(target: str, screenshot_dir: str) -> str:
     )
     msg = HumanMessage(content=[
         {"type": "text", "text": prompt},
-        {"type": "image_url",
-         "image_url": f"data:image/png;base64,{b64}"},
+        {"type": "image_url", "image_url": f"data:image/png;base64,{b64}"},
     ])
-    findings = config.llm_retry(vision_llm.invoke)([msg]).content
-    text = _extract_text(findings)
+
+    gemini_models = [config.VISION_MODEL, config.FALLBACK_MODEL_1.replace("google_genai:", "")]
+    text = None
+    for model_name in gemini_models:
+        try:
+            llm = ChatGoogleGenerativeAI(model=model_name, max_output_tokens=1024)
+            findings = config.llm_retry(llm.invoke)([msg]).content
+            text = _extract_text(findings)
+            break
+        except Exception:
+            continue
+
+    if not text:
+        text = "Visual analysis unavailable (vision quota exhausted or screenshot capture failed)."
 
     tools._mem().set_fact("vision_findings", text)
     tools._mem().set_fact("screenshot_path", saved)

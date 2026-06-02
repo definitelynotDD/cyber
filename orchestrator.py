@@ -111,7 +111,10 @@ def recon_node(state: MapperState) -> dict:
 
 def vision_node(state: MapperState) -> dict:
     tools.set_active_memory(_MEMORY)
-    findings = agents.run_vision(state["target"], SCREENSHOT_DIR)
+    try:
+        findings = agents.run_vision(state["target"], SCREENSHOT_DIR)
+    except Exception as e:
+        findings = f"Visual analysis skipped: {e}"
     return {"completed": ["vision"],
             "logs": [_log("vision", findings)]}
 
