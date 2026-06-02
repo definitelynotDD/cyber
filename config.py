@@ -25,10 +25,10 @@ SIMULATION_MODE = os.getenv("ASM_SIMULATION", "true").lower() in ("1", "true", "
 
 # LLM used by the agents. Format is "<provider>:<model>" for langchain's
 # init_chat_model resolver. Override with ASM_LLM_MODEL if needed.
-LLM_MODEL = os.getenv("ASM_LLM_MODEL", "google_genai:gemini-3.5-flash")
+LLM_MODEL = os.getenv("ASM_LLM_MODEL", "google_genai:gemini-3.1-flash-lite")
 
 # Vision model for screenshot analysis (must be multimodal).
-VISION_MODEL = os.getenv("ASM_VISION_MODEL", "gemini-3.5-flash")
+VISION_MODEL = os.getenv("ASM_VISION_MODEL", "gemini-3.1-flash-lite")
 
 # Hard stop so the supervisor can never loop forever (and burn API budget).
 MAX_SUPERVISOR_STEPS = int(os.getenv("ASM_MAX_STEPS", "12"))
@@ -44,8 +44,8 @@ EMBED_MODEL = os.getenv("ASM_EMBED_MODEL", "all-MiniLM-L6-v2")
 # whitelist so a hallucinated agent name can't crash the graph.
 WORKERS = ["recon", "vision", "analysis", "report"]
 
-# Fallback chain: gemini-3.1-flash-lite → groq llama3
-FALLBACK_MODEL_1 = os.getenv("ASM_FALLBACK_MODEL_1", "google_genai:gemini-3.1-flash-lite")
+# Fallback chain: gemini-3.5-flash → groq llama3
+FALLBACK_MODEL_1 = os.getenv("ASM_FALLBACK_MODEL_1", "google_genai:gemini-3.5-flash")
 FALLBACK_MODEL = os.getenv("ASM_FALLBACK_MODEL", "groq:llama-3.3-70b-versatile")
 
 # Retry decorator for Gemini rate-limit (429 / RESOURCE_EXHAUSTED) errors.
