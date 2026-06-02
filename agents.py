@@ -40,23 +40,29 @@ def _worker(model: str, prompt: str, tool_list: list[Callable]):
 recon_agent = _worker(config.LLM_MODEL, RECON_PROMPT, tools.RECON_TOOLS)
 analysis_agent = _worker(config.LLM_MODEL, ANALYSIS_PROMPT, tools.ANALYSIS_TOOLS)
 
-# Groq fallback agents — built lazily on first quota error.
-_recon_fallback: object = None
-_analysis_fallback: object = None
+# Fallback agents — built lazily: gemini-3.1-flash-lite first, then groq.
+_recon_fb1: object = None
+_recon_fb2: object = None
+_analysis_fb1: object = None
+_analysis_fb2: object = None
 
 
 def _get_recon_fallback():
-    global _recon_fallback
-    if _recon_fallback is None:
-        _recon_fallback = _worker(config.FALLBACK_MODEL, RECON_PROMPT, tools.RECON_TOOLS)
-    return _recon_fallback
+    global _recon_fb1, _recon_fb2
+    if _recon_fb1 is None:
+        _recon_fb1 = _worker(config.FALLBACK_MODEL_1, RECON_PROMPT, tools.RECON_TOOLS)
+    if _recon_fb2 is None:
+        _recon_fb2 = _worker(config.FALLBACK_MODEL, RECON_PROMPT, tools.RECON_TOOLS)
+    return _recon_fb1, _recon_fb2
 
 
 def _get_analysis_fallback():
-    global _analysis_fallback
-    if _analysis_fallback is None:
-        _analysis_fallback = _worker(config.FALLBACK_MODEL, ANALYSIS_PROMPT, tools.ANALYSIS_TOOLS)
-    return _analysis_fallback
+    global _analysis_fb1, _analysis_fb2
+    if _analysis_fb1 is None:
+        _analysis_fb1 = _worker(config.FALLBACK_MODEL_1, ANALYSIS_PROMPT, tools.ANALYSIS_TOOLS)
+    if _analysis_fb2 is None:
+        _analysis_fb2 = _worker(config.FALLBACK_MODEL, ANALYSIS_PROMPT, tools.ANALYSIS_TOOLS)
+    return _analysis_fb1, _analysis_fb2
 
 
 def _is_quota_error(e: Exception) -> bool:
@@ -86,25 +92,30 @@ def _normalize_url(target: str) -> str:
     return cleaned
 
 
-def run_recon(target: str) -> str:
-    msg = {"messages": [{"role": "user", "content": f"Map the attack surface of {target}."}]}
+def _invoke_with_fallbacks(primary, fallbacks, msg):
     try:
-        res = config.llm_retry(recon_agent.invoke)(msg)
+        return config.llm_retry(primary.invoke)(msg)
     except Exception as e:
         if not _is_quota_error(e):
             raise
-        res = _get_recon_fallback().invoke(msg)
+    for fb in fallbacks:
+        try:
+            return fb.invoke(msg)
+        except Exception as e:
+            if not _is_quota_error(e):
+                raise
+    raise RuntimeError("All models exhausted quota.")
+
+
+def run_recon(target: str) -> str:
+    msg = {"messages": [{"role": "user", "content": f"Map the attack surface of {target}."}]}
+    res = _invoke_with_fallbacks(recon_agent, list(_get_recon_fallback()), msg)
     return _extract_text(res["messages"][-1].content)
 
 
 def run_analysis(target: str) -> str:
     msg = {"messages": [{"role": "user", "content": f"Assess the hosts discovered for {target}."}]}
-    try:
-        res = config.llm_retry(analysis_agent.invoke)(msg)
-    except Exception as e:
-        if not _is_quota_error(e):
-            raise
-        res = _get_analysis_fallback().invoke(msg)
+    res = _invoke_with_fallbacks(analysis_agent, list(_get_analysis_fallback()), msg)
     return _extract_text(res["messages"][-1].content)
 
 
