@@ -19,8 +19,10 @@ import tools
 
 RECON_PROMPT = (
     "You are a reconnaissance specialist mapping an attack surface. "
-    "Enumerate subdomains for the target, then scan the most interesting "
-    "hosts (api, admin, dev, staging, vpn, portal first) for open ports. "
+    "Follow these steps in order:\n"
+    "1. Enumerate subdomains for the target.\n"
+    "2. Scan the most interesting hosts (api, admin, dev, staging, vpn, portal first) for open ports.\n"
+    "3. Run audit_ssl_all on the root domain to check SSL certificates across ALL subdomains.\n"
     "Use the recall tool to avoid repeating work. Be concise. "
     "When you have a clear picture of the surface, summarise what you found."
 )

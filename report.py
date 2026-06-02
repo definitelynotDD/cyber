@@ -66,6 +66,7 @@ def generate(mem: MemoryStore, out_path: str = REPORT_PATH) -> str:
     vulns  = facts.get("vulnerabilities", [])
     vision = facts.get("vision_findings", "")
     ssl    = facts.get("ssl_certificate", {})
+    ssl_all = facts.get("ssl_all", {})
 
     sorted_vulns = sorted(vulns, key=lambda x: SEVERITY_ORDER.get(
         x.get("severity", "unknown"), 9))
@@ -115,8 +116,16 @@ def generate(mem: MemoryStore, out_path: str = REPORT_PATH) -> str:
                 lines.append(f"| `{host}` | {p} | {svc} |")
         lines.append("")
 
-    # --- SSL Certificate ---
-    if ssl:
+    # --- SSL Certificates (all subdomains) ---
+    if ssl_all:
+        lines.append("## SSL Certificates")
+        lines.append("")
+        lines.append("| Host | Status | Issuer |")
+        lines.append("| --- | --- | --- |")
+        for host, info in ssl_all.items():
+            lines.append(f"| `{host}` | {info.get('status', '?')} | {info.get('issuer', '?')} |")
+        lines.append("")
+    elif ssl:
         days = ssl.get("days_left", 9999)
         status = (
             "🔴 EXPIRED" if days < 0
@@ -131,8 +140,6 @@ def generate(mem: MemoryStore, out_path: str = REPORT_PATH) -> str:
         lines.append(f"| Issuer | {ssl.get('issuer', 'unknown')} |")
         lines.append(f"| Expiry | {ssl.get('expiry', 'unknown')} |")
         lines.append(f"| Self-signed | {'⚠ Yes' if ssl.get('self_signed') else 'No'} |")
-        if ssl.get("sans"):
-            lines.append(f"| SANs | {', '.join(ssl['sans'][:6])} |")
         lines.append("")
 
     # --- Visual Analysis ---

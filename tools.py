@@ -312,5 +312,94 @@ def check_ssl(hostname: str) -> str:
     return summary
 
 
-RECON_TOOLS = [enumerate_subdomains, scan_ports, check_ssl, recall]
+@tool(parse_docstring=True)
+def audit_ssl_all(root_domain: str) -> str:
+    """Check SSL certificates for all discovered subdomains of a domain.
+
+    Reads subdomains from memory (populated by enumerate_subdomains) and
+    runs check_ssl against each one that has port 443 reachable.
+    Always includes the root domain itself.
+
+    Args:
+        root_domain: The apex domain, e.g. "example.com".
+
+    Returns:
+        A consolidated SSL status table for all subdomains.
+    """
+    import ssl, socket, datetime
+
+    root_domain = root_domain.replace("https://", "").replace("http://", "").split("/")[0]
+
+    # Gather hosts: root + anything in memory
+    hosts: list[str] = [root_domain]
+    stored = _mem().get_fact("subdomains") or []
+    for h in stored:
+        h = h.strip()
+        if h and h not in hosts:
+            hosts.append(h)
+
+    results = []
+    all_ssl_facts = {}
+
+    def _check_one(hostname: str):
+        hostname = hostname.replace("https://", "").replace("http://", "").split("/")[0]
+        try:
+            ctx = ssl.create_default_context()
+            with socket.create_connection((hostname, 443), timeout=8) as sock:
+                with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
+                    cert = ssock.getpeercert()
+        except ssl.SSLCertVerificationError as e:
+            return hostname, "[INVALID CERT]", str(e)[:80], -9999, True
+        except (socket.timeout, ConnectionRefusedError, OSError):
+            return hostname, "[no HTTPS]", "port 443 not reachable", None, False
+        except Exception as e:
+            return hostname, "[error]", str(e)[:80], None, False
+
+        not_after_str = cert.get("notAfter", "")
+        try:
+            not_after = datetime.datetime.strptime(not_after_str, "%b %d %H:%M:%S %Y %Z")
+            days_left = (not_after - datetime.datetime.utcnow()).days
+        except Exception:
+            days_left = None
+
+        issuer = dict(x[0] for x in cert.get("issuer", []))
+        subject = dict(x[0] for x in cert.get("subject", []))
+        issuer_name = issuer.get("organizationName") or issuer.get("commonName", "unknown")
+        self_signed = subject == issuer
+
+        if days_left is None:
+            status = "[unknown]"
+        elif days_left < 0:
+            status = f"[EXPIRED {abs(days_left)}d ago]"
+        elif days_left <= 30:
+            status = f"[EXPIRING SOON {days_left}d]"
+        else:
+            status = f"[valid {days_left}d]"
+
+        if self_signed:
+            issuer_name += " ⚠ self-signed"
+
+        return hostname, status, issuer_name, days_left, self_signed
+
+    for host in hosts:
+        hostname, status, issuer_name, days_left, self_signed = _check_one(host)
+        results.append((hostname, status, issuer_name))
+        if days_left is not None:
+            all_ssl_facts[hostname] = {
+                "status": status, "issuer": issuer_name,
+                "days_left": days_left, "self_signed": self_signed,
+            }
+
+    _mem().set_fact("ssl_all", all_ssl_facts)
+    _mem().add_note(f"SSL audit across {len(results)} hosts for {root_domain}")
+
+    lines = [f"SSL audit for {root_domain} ({len(results)} hosts):\n"]
+    lines.append(f"{'Host':<35} {'Status':<22} {'Issuer'}")
+    lines.append("-" * 80)
+    for hostname, status, issuer_name in results:
+        lines.append(f"{hostname:<35} {status:<22} {issuer_name}")
+    return "\n".join(lines)
+
+
+RECON_TOOLS = [enumerate_subdomains, scan_ports, check_ssl, audit_ssl_all, recall]
 ANALYSIS_TOOLS = [detect_known_issues, recall]
