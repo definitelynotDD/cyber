@@ -6,14 +6,13 @@ import os
 import subprocess
 import sys
 
-# Ensure Playwright's Chromium binary is present (needed on Streamlit Cloud).
-try:
-    from playwright.sync_api import sync_playwright as _sp
-    with _sp() as _p:
-        _p.chromium.launch(headless=True).close()
-except Exception:
-    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"],
-                  check=False, capture_output=True)
+# Always ensure Playwright's Chromium binary is present.
+# `playwright install` is a fast no-op if the binary already exists,
+# so running it unconditionally is safe and fixes Streamlit Cloud cold starts.
+subprocess.run(
+    [sys.executable, "-m", "playwright", "install", "chromium"],
+    check=False, capture_output=True,
+)
 
 import streamlit as st
 
