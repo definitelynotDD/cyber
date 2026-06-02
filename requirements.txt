@@ -1,0 +1,22 @@
+# Core orchestration (LangGraph v1.0+ / current LangChain agent API)
+langchain>=1.0
+langgraph>=0.6
+langchain-core>=0.3
+langchain-google-genai>=4.0
+
+# UI
+streamlit>=1.40
+
+# Semantic memory (optional — system falls back to keyword search if absent)
+faiss-cpu>=1.8
+sentence-transformers>=3.0
+
+# Screenshots + placeholder rendering
+playwright>=1.45          # then run: playwright install chromium
+pillow>=10.0
+
+# --- external binaries (NOT pip — install separately for live mode) --------
+#   subfinder   https://github.com/projectdiscovery/subfinder
+#   nmap        https://nmap.org
+#   nuclei      https://github.com/projectdiscovery/nuclei
+# Simulation mode needs none of these.
