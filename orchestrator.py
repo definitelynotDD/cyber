@@ -10,6 +10,7 @@ Pipeline intent: recon -> vision + analysis -> report -> FINISH.
 from __future__ import annotations
 
 import operator
+import os
 from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -19,7 +20,7 @@ import config
 import tools
 from memory import MemoryStore
 
-SCREENSHOT_DIR = "runs/screenshots"
+SCREENSHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "runs", "screenshots")
 
 
 class MapperState(TypedDict):

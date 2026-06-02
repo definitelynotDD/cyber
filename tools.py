@@ -204,14 +204,17 @@ def capture_screenshot(url: str, out_path: str) -> Optional[str]:
     # Run Playwright in a subprocess to avoid asyncio event-loop conflicts
     # with Streamlit's own loop. Errors are printed so they surface in the terminal.
     import subprocess, sys
-    _helper = os.path.join(os.path.dirname(__file__), "_capture.py")
+    _here   = os.path.dirname(os.path.abspath(__file__))
+    _helper = os.path.join(_here, "_capture.py")
+    _abs_out = os.path.abspath(out_path)
     try:
         result = subprocess.run(
-            [sys.executable, _helper, url, out_path],
+            [sys.executable, _helper, url, _abs_out],
             timeout=90, capture_output=True, text=True,
+            cwd=_here,
         )
-        if result.returncode == 0 and os.path.exists(out_path):
-            return out_path
+        if result.returncode == 0 and os.path.exists(_abs_out):
+            return _abs_out
         if result.stderr:
             print(f"[screenshot] Playwright error: {result.stderr[-600:]}", flush=True)
     except Exception as exc:
